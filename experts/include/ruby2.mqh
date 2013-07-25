@@ -110,55 +110,59 @@ void ret_void()
 }
 
 int handle_read(int c) {
-         int ret_pack = r_recv_pack(c);
-         if(debug) Print(" :: r_recv_pack() => "+ret_pack);
-         
-         if(ret_pack == 0) {
-            ArrayResize(msg_int, 20);
-            ArrayResize(msg_dbl, 20);
-            ArrayResize(msg_str, 20);
-            for(int i=0; i<20; i++)
-               msg_str[i] = StringConcatenate("-----------------------------------------------------------", "------------------------------------------------------------");
-            if(debug) Print(" :: handle_read :: msg_int "+ArraySize(msg_int));
-            
-            int msg_ints = r_int_array(msg_int);
-            int msg_dbls = r_double_array(msg_dbl);
-            int msg_strs = r_string_array(msg_str);
-            
-            if(debug) Print(StringConcatenate(" :: handle_read :: msg >>"+msg_int[0]+"<< strings=", msg_strs, " ints=", msg_ints, " doubles=", msg_dbls));
-            
-            if(msg_int[0] == -1)
-               return(-1);
-            
-            handle_request(msg_int, msg_dbl, msg_str);
-            
-            if(debug) Print(StringConcatenate(" :: handle_read :: ints:", ArraySize(msg_int), " doubles:", ArraySize(msg_dbl), " strings:", ArraySize(msg_str)));
-            
-            r_int_array_set(msg_int, ArraySize(msg_int));
-            r_double_array_set(msg_dbl, ArraySize(msg_dbl));
-            r_string_array_set(msg_str, ArraySize(msg_str));
-            
-            int ret_send = r_packet_return(c);
-            if(debug) Print(" :: handle_read :: ret_send => "+ret_send);
-         }
-         else {
-            r_close(c);
-            if(debug) Print(" :: handle_read :: closed");
-         }
+   int ret_pack = r_recv_pack(c);
+   if(debug) Print(" :: r_recv_pack() => "+ret_pack);
+
+   if(ret_pack == 0) {
+      ArrayResize(msg_int, 20);
+      ArrayResize(msg_dbl, 20);
+      ArrayResize(msg_str, 20);
+
+      for(int i=0; i<20; i++)
+         msg_str[i] = StringConcatenate("-----------------------------------------------------------", "------------------------------------------------------------");
+
+      if(debug) Print(" :: handle_read :: msg_int "+ArraySize(msg_int));
+
+      int msg_ints = r_int_array(msg_int);
+      int msg_dbls = r_double_array(msg_dbl);
+      int msg_strs = r_string_array(msg_str);
+
+      if(debug) Print(StringConcatenate(" :: handle_read :: msg >>"+msg_int[0]+"<< strings=", msg_strs, " ints=", msg_ints, " doubles=", msg_dbls));
+
+      if(msg_int[0] == -1)
+         return(-1);
+
+      handle_request(msg_int, msg_dbl, msg_str);
+
+      if(debug) Print(StringConcatenate(" :: handle_read :: ints:", ArraySize(msg_int), " doubles:", ArraySize(msg_dbl), " strings:", ArraySize(msg_str)));
+
+      r_int_array_set(msg_int, ArraySize(msg_int));
+      r_double_array_set(msg_dbl, ArraySize(msg_dbl));
+      r_string_array_set(msg_str, ArraySize(msg_str));
+
+      int ret_send = r_packet_return(c);
+
+      if(debug) Print(" :: handle_read :: ret_send => "+ret_send);
+   }
+   else {
+      r_close(c);
+      if(debug) Print(" :: handle_read :: closed");
+   }
+
    return(0);
 }
 
 void handle_request(int &ints[], double &doubles[], string &strings[]) {
    //Ask, Bid, Point, Bars, Digits, Open, Close, High, Low, Volume, Time
-   
+
    int i;
-   
+
    switch(ints[0]) {
       case -1:
          Alert("return");
          ret_void();
          break;
-      
+
       case 0:
          ret_d(Ask);
          break;
@@ -192,7 +196,7 @@ void handle_request(int &ints[], double &doubles[], string &strings[]) {
       case 10:
          ret_i(Time[ints[1]]);
          break;
-      
+
       case ROrderClose:
          ret_i(OrderClose(ints[1], doubles[0], doubles[1], ints[2], ints[3]));
          break;
@@ -228,7 +232,7 @@ void handle_request(int &ints[], double &doubles[], string &strings[]) {
          ArrayResize(ints, orders);
          ArrayResize(strings, 0);
          ArrayResize(doubles, 0);
-         
+
          for(i=0; i<orders; i++) {
             OrderSelect(i, SELECT_BY_POS);
             ints[i] = OrderTicket();
@@ -246,7 +250,7 @@ void handle_request(int &ints[], double &doubles[], string &strings[]) {
          OrderSelect(ints[1], SELECT_BY_TICKET);
          ret_i(OrderType());
          break;
-      
+
       case RObjects:
          int objects = ObjectsTotal();
          ArrayResize(ints, 0);
@@ -289,7 +293,7 @@ void handle_request(int &ints[], double &doubles[], string &strings[]) {
       case RObjectGetValueByShift:
          ret_d(ObjectGetValueByShift(strings[0], ints[1]));
          break;
-      
+
       case RWindowRedraw:
          WindowRedraw();
          ret_void();
@@ -303,7 +307,7 @@ void handle_request(int &ints[], double &doubles[], string &strings[]) {
       case RSymbol:
          ret_s(Symbol());
          break;
-      
+
       case RiBars:
          ret_i(iBars(strings[0], ints[1]));
          break;
@@ -334,7 +338,7 @@ void handle_request(int &ints[], double &doubles[], string &strings[]) {
       case RiVolume:
          ret_d(iVolume(strings[0], ints[1], ints[2]));
          break;
-      
+
       default:
          Alert(" :: UNKNOWN COMMAND "+ints[0]);
          Print(" :: UNKNOWN COMMAND "+ints[0]);
