@@ -117,34 +117,33 @@ int handle_read(int c) {
             ArrayResize(msg_int, 20);
             ArrayResize(msg_dbl, 20);
             ArrayResize(msg_str, 20);
-            for(int i=0; i<10; i++)
+            for(int i=0; i<20; i++)
                msg_str[i] = StringConcatenate("-----------------------------------------------------------", "------------------------------------------------------------");
-            if(debug) Print(" :: msg_int "+ArraySize(msg_int));
+            if(debug) Print(" :: handle_read :: msg_int "+ArraySize(msg_int));
             
             int msg_ints = r_int_array(msg_int);
             int msg_dbls = r_double_array(msg_dbl);
             int msg_strs = r_string_array(msg_str);
             
-            if(debug) Print(StringConcatenate(" :: msg ", msg_strs, " strings, ", msg_ints, " ints, ", msg_dbls, " doubles"));
-            if(debug) Print(" :: received msg >>"+msg_int[0]+"<<");
+            if(debug) Print(StringConcatenate(" :: handle_read :: msg >>"+msg_int[0]+"<< strings=", msg_strs, " ints=", msg_ints, " doubles=", msg_dbls));
             
             if(msg_int[0] == -1)
                return(-1);
             
             handle_request(msg_int, msg_dbl, msg_str);
             
-            if(debug) Print(StringConcatenate(" :: handle ints:", ArraySize(msg_int), " doubles:", ArraySize(msg_dbl), " strings:", ArraySize(msg_str)));
+            if(debug) Print(StringConcatenate(" :: handle_read :: ints:", ArraySize(msg_int), " doubles:", ArraySize(msg_dbl), " strings:", ArraySize(msg_str)));
             
             r_int_array_set(msg_int, ArraySize(msg_int));
             r_double_array_set(msg_dbl, ArraySize(msg_dbl));
             r_string_array_set(msg_str, ArraySize(msg_str));
             
             int ret_send = r_packet_return(c);
-            if(debug) Print(" :: ret_send => "+ret_send);
+            if(debug) Print(" :: handle_read :: ret_send => "+ret_send);
          }
          else {
             r_close(c);
-            if(debug) Print(" :: closed");
+            if(debug) Print(" :: handle_read :: closed");
          }
    return(0);
 }
@@ -338,5 +337,7 @@ void handle_request(int &ints[], double &doubles[], string &strings[]) {
       
       default:
          Alert(" :: UNKNOWN COMMAND "+ints[0]);
+         Print(" :: UNKNOWN COMMAND "+ints[0]);
+         ret_void();
    }
 }
