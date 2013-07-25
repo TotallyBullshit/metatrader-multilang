@@ -64,6 +64,8 @@ MQLAPI void	MQLCALL	r_finish(SOCKET);
 MQLAPI int	MQLCALL	r_recv_pack(SOCKET sd);
 }
 
+bool r_close_socket(SOCKET sd);
+
 void SetupFDSets(fd_set& ReadFDs, fd_set& WriteFDs, fd_set& ExceptFDs, SOCKET ListeningSocket = INVALID_SOCKET)
 {
    FD_ZERO(&ReadFDs);
@@ -525,9 +527,16 @@ bool MQLCALL r_close(SOCKET sd)
 	if(f != gConnections.end())
 		gConnections.erase(f);
 
+	return r_close_socket(sd);
+}
+
+bool r_close_socket(SOCKET sd)
+{
+	// stop communication in both directions
 	if(shutdown(sd, SD_BOTH) == SOCKET_ERROR)
 		return false;
 
+	// read pending data
    char acReadBuffer[kBufferSize];
 	while (1)
 	{
@@ -538,14 +547,14 @@ bool MQLCALL r_close(SOCKET sd)
 			break;
     }
 
-	if (closesocket(sd) == SOCKET_ERROR)
-		return false;
-
-	return true;
+	return (closesocket(sd) != SOCKET_ERROR);
 }
 
 void MQLCALL r_finish(SOCKET s)
 {
+	for(SOCKET sd : gConnections) {
+		r_close_socket(sd);
+	}
 	shutdown(s, SD_BOTH);
 	closesocket(s);
 }
