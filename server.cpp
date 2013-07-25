@@ -1,0 +1,646 @@
+//C++11: remote procedure call library for MQL4
+//g++ server.cpp -o server.dll -s -shared -Wl,--kill-at -std=c++11 -lws2_32
+//i486-mingw32-... -lmsgpack
+
+#include "winsock2.h"
+#include "time.h"
+#include <iostream>
+#include <algorithm>
+#include <vector>
+#include <msgpack.hpp>
+
+using namespace std;
+
+const int kBufferSize = 1024;
+vector<SOCKET> gConnections;
+
+vector<int> int_array;
+vector<double> double_array;
+vector<std::string> string_array;
+
+int type_return, int_return;
+double double_return;
+char *string_return;
+
+/*
+00 GETCONST		([int]) -> int|double			double Ask, Bid, Point/int Bars, Digits/double Open[], Close[], High[], Low[], Volume[]/int Time[]
+01 ACCINFO		-> double						double AccountBalance()
+02 
+*/
+
+#define MQLCALL __stdcall
+#define MQLAPI __declspec(dllexport)
+
+struct mql_string {
+	size_t len;
+	char *s;
+};
+
+extern "C" {
+MQLAPI SOCKET	MQLCALL	r_init(int port);
+MQLAPI SOCKET	MQLCALL	r_accept(SOCKET);
+MQLAPI SOCKET	MQLCALL	r_check_accept(SOCKET);
+
+MQLAPI SOCKET	MQLCALL	r_ready_read(SOCKET);
+MQLAPI int	MQLCALL	r_packet_get(SOCKET);
+MQLAPI int	MQLCALL	r_packet_return(SOCKET);
+//MQLAPI void	MQLCALL	r_call(SOCKET, char*, char*);
+
+MQLAPI int	MQLCALL	r_int_array(int*);
+MQLAPI int	MQLCALL	r_double_array(double*);
+MQLAPI int	MQLCALL	r_string_array(mql_string*);
+
+MQLAPI void	MQLCALL	r_int_array_set(int*, int);
+MQLAPI void	MQLCALL	r_double_array_set(double*, int);
+MQLAPI void	MQLCALL	r_string_array_set(mql_string*, int);
+
+MQLAPI void	MQLCALL	r_int_return(int);
+MQLAPI void	MQLCALL	r_double_return(double);
+MQLAPI void	MQLCALL	r_string_return(char*);
+
+MQLAPI bool	MQLCALL	r_close(SOCKET sd);
+MQLAPI void	MQLCALL	r_finish(SOCKET);
+
+MQLAPI int	MQLCALL	r_recv_pack(SOCKET sd);
+}
+
+void SetupFDSets(fd_set& ReadFDs, fd_set& WriteFDs, fd_set& ExceptFDs, SOCKET ListeningSocket = INVALID_SOCKET)
+{
+   FD_ZERO(&ReadFDs);
+   FD_ZERO(&WriteFDs);
+   FD_ZERO(&ExceptFDs);
+
+   // Add the listener socket to the read and except FD sets, if there
+   // is one.
+   if (ListeningSocket != INVALID_SOCKET) {
+		FD_SET(ListeningSocket, &ReadFDs);
+		FD_SET(ListeningSocket, &ExceptFDs);
+	}
+
+	// Add client connections
+	for(SOCKET s : gConnections) {
+		FD_SET(s, &ReadFDs);
+		FD_SET(s, &ExceptFDs);
+	}
+}
+
+SOCKET s_accept(SOCKET ListeningSocket, timeval *tv)
+{
+	sockaddr_in from;
+	int nAddrSize = sizeof(from);
+
+	fd_set ReadFDs, WriteFDs, ExceptFDs;
+	SetupFDSets(ReadFDs, WriteFDs, ExceptFDs, ListeningSocket);
+
+	
+	int ret = select(0, &ReadFDs, NULL, &ExceptFDs, tv);
+	
+	if(ret > 0)
+	{
+		//// Something happened on one of the sockets.
+		// Was it the listener socket?...
+		if (FD_ISSET(ListeningSocket, &ReadFDs))
+		{
+			SOCKET sd = accept(ListeningSocket, (sockaddr*)&from, &nAddrSize);
+	
+			if (sd != INVALID_SOCKET)
+			{
+				// Tell user we accepted the socket, and add it to
+				// our connecition list.
+				std::cout << "Accepted connection from " << inet_ntoa(from.sin_addr) << ":" << ntohs(from.sin_port)
+				<< ", socket " << sd << "." << std::endl;
+	
+				gConnections.push_back(sd);
+	
+				if ((gConnections.size() + 1) > 64)
+					std::cout << "WARNING: More than 63 client connections accepted."
+					<< " This will not work reliably on some Winsock stacks!" << std::endl;
+	
+				// Mark the socket as non-blocking, for safety.
+				u_long nNoBlock = 1;
+				ioctlsocket(sd, FIONBIO, &nNoBlock);
+				return(sd);
+			}
+			else
+			{
+				std::cerr << "accept() failed: " << WSAGetLastError() << std::endl;
+				return INVALID_SOCKET;
+			}
+		}
+		else if (FD_ISSET(ListeningSocket, &ExceptFDs))
+		{
+			int err, errlen = sizeof(err);
+			getsockopt(ListeningSocket, SOL_SOCKET, SO_ERROR, (char*)&err, &errlen);
+			std::cerr << WSAGetLastError() << " Exception on listening socket: " << err << std::endl;
+			return INVALID_SOCKET;
+		}
+	}
+	else if(ret == SOCKET_ERROR)
+		std::cerr << "select() failed in check_accept(" << ListeningSocket << ") " << WSAGetLastError() << std::endl;
+	
+	return INVALID_SOCKET;
+}
+
+SOCKET MQLCALL r_init(int port)
+{
+	WSAData wsaData;
+	int ret;
+	if((ret = WSAStartup(0x101, &wsaData)) != 0)
+		return(WSAGetLastError());
+
+	//u_long nInterfaceAddr = inet_addr("localhost");
+
+	SOCKET sd = socket(AF_INET, SOCK_STREAM, 0);
+	if (sd != INVALID_SOCKET)
+	{
+		sockaddr_in sinInterface{AF_INET, htons(port), INADDR_ANY};
+
+		if (bind(sd, (sockaddr*)&sinInterface, sizeof(sockaddr_in)) != SOCKET_ERROR)
+		{
+			listen(sd, 5);
+			return(sd);
+		}
+		else
+			std::cerr << "bind() failed " << WSAGetLastError() << std::endl;
+	}
+
+    return INVALID_SOCKET;
+}
+
+SOCKET MQLCALL r_accept(SOCKET s)
+{
+	return s_accept(s, NULL);
+}
+
+SOCKET MQLCALL r_check_accept(SOCKET s)
+{
+	timeval tv{0, 0};
+	return s_accept(s, &tv);
+}
+
+SOCKET MQLCALL r_ready_read(SOCKET ListeningSocket)
+{
+	std::string errstr("error");
+	std::cerr << "r_ready_read " << ListeningSocket << std::endl;
+
+	//sockaddr_in sinRemote;
+	//int nAddrSize = sizeof(sinRemote);
+
+	fd_set ReadFDs, WriteFDs, ExceptFDs;
+	SetupFDSets(ReadFDs, WriteFDs, ExceptFDs, ListeningSocket);
+
+	try {
+		int ready = select(0, &ReadFDs, NULL, &ExceptFDs, 0);
+		std::cerr << "r_ready_read ready=" << ready << std::endl;
+		if(ready > 0)
+		{
+			for (auto it = gConnections.begin(); it != gConnections.end(); )
+			{
+				std::cerr << "r_ready_read it=" << *it << std::endl;
+				if(FD_ISSET(*it, &ExceptFDs))	// Something bad happened on the socket, or the client closed its half of the connection.
+				{
+					std::cerr << "r_ready_read exception on " << *it << std::endl;
+					FD_CLR(*it, &ExceptFDs);
+					int err, errlen = sizeof(err);
+					getsockopt(*it, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&err), &errlen);
+					if(err != NO_ERROR)
+						throw err;
+					r_close(*it);	// Shut the conn down and remove it from the list.
+					gConnections.erase(it);
+					it = gConnections.begin();
+				}
+				else if(FD_ISSET(*it, &ReadFDs))	//Socket readable; handling it
+				{
+					std::cerr << "r_ready_read readable " << *it << std::endl;
+					return *it;
+				}
+				else
+					++it;
+			}
+		}
+		else if(ready == SOCKET_ERROR)
+			throw WSAGetLastError();
+	}
+	catch(int e) {
+		std::cerr << "r_read " << errstr << ": " << e << std::endl;
+	}
+	return INVALID_SOCKET;
+}
+
+int MQLCALL r_packet_get(SOCKET c)
+{
+	int r, id, j, ints, doubles, strings, slen;
+	unsigned short len;
+	char *buf, *alloc, *sbuf;
+	
+	std::cerr << "r_packet_get " << c << std::endl;
+	
+	try {
+		r = recv(c, (char*)&len, 2, 0);
+		if(r == SOCKET_ERROR)	throw WSAGetLastError();
+		else if(r != 2)
+		{
+			std::cerr << "recv CLOSE (0) error: r=" << r << std::endl;
+			//r_close(c);
+			return SOCKET_ERROR;
+		}
+
+		alloc = buf = new char[len];
+		std::cerr << "r_packet_get len=" << len << std::endl;
+
+		unsigned long len_waiting=0;
+		while(len_waiting < len) {ioctlsocket(c, FIONREAD, &len_waiting);}
+		r = recv(c, buf, len, 0);
+		if(r == SOCKET_ERROR)	throw WSAGetLastError();
+		else if(r != len)
+		{
+			std::cerr << "recv CLOSE (0) error: r=" << r << std::endl;
+			//r_close(c);
+			return SOCKET_ERROR;
+		}
+		
+		msgpack::unpacker pack;
+		msgpack::unpacked result;
+		
+		memcpy(pack.buffer(), buf, len);
+		pack.buffer_consumed(len);
+		
+		pack.next(&result);
+		std::cerr << "PACK: " << result.get() << std::endl;
+		
+		id = reinterpret_cast<int*>(buf)[0];
+		buf += 4;
+		ints = buf[0];
+		doubles = buf[1];
+		strings = buf[2];
+		buf += 3;
+		
+		int_array.assign(reinterpret_cast<int*>(buf), reinterpret_cast<int*>(buf)+ints);
+		buf += ints*4;
+		double_array.assign(reinterpret_cast<double*>(buf), reinterpret_cast<double*>(buf)+doubles);
+		buf += doubles*4;
+		string_array.clear();
+		for(int i=0; i<strings; i++)
+		{
+			slen = strlen(buf)+1;
+			sbuf = new char[slen];
+			strcpy(sbuf, buf);
+			string_array.push_back(sbuf);
+			buf += len;
+		}
+
+		//if(ints)
+		//	reinterpret_cast<int*>(&buf[7]);
+		delete[] alloc;
+		type_return = -1;
+		return id;
+	}
+	catch(int wsaerr) {
+		if(wsaerr == 10054)
+		{
+			std::cerr << "recv CLOSE error: " << wsaerr << std::endl;
+			return SOCKET_ERROR;
+		}
+		std::cerr << "recv error: " << wsaerr << std::endl;
+		return -wsaerr;
+	}
+	catch(bad_alloc&) {
+		std::cerr << "recv error: alloc failed" << std::endl;
+		return -2;
+	}
+	catch(...) {
+		std::cerr << "recv: connection closed" << std::endl;
+		return -3;
+	}
+	return SOCKET_ERROR;
+}
+
+int MQLCALL r_packet_return(SOCKET c)
+{
+	int r;
+	unsigned short len;
+	void *ptr;
+
+	try {
+		std::cerr << " :: r_packet_return" << std::endl;
+		/*switch(type_return)
+		{
+			case 0:
+				len = sizeof(int_return)+4;
+				ptr = &int_return;
+			break;
+			case 1:
+				len = sizeof(double_return)+4;
+				ptr = &double_return;
+			break;
+			case 2:
+				len = strlen(string_return)+1+4;
+				ptr = string_return;
+			break;
+			default:
+				return 0;
+		}*/
+		//r = send(c, (char*)&len, 2, 0);
+		//if(r == SOCKET_ERROR)	throw WSAGetLastError();
+		//else if(r < 2)	throw;
+		
+		msgpack::sbuffer sbuf;
+		msgpack::packer<msgpack::sbuffer> packer(&sbuf);
+		/*std::vector<std::vector<void>> objs_vec;
+		objs_vec.push_back(int_array);
+		objs_vec.push_back(double_array);
+		objs_vec.push_back(string_array);*/
+		
+		if(int_array.size() > 0)
+			packer.pack(int_array);
+		if(double_array.size() > 0)
+			packer.pack(double_array);
+		if(string_array.size() > 0)
+			packer.pack(string_array);
+		
+		//msgpack::object objs(objs_vec);
+		//msgpack::pack(sbuf, objs_vec);
+		
+		len = sbuf.size();
+		ptr = sbuf.data();
+		
+		std::cerr << " :: r_packet_return packed bytes " << len << std::endl;
+		
+		r = send(c, (char*)&len, 2, 0);
+		if(r == SOCKET_ERROR)
+			throw WSAGetLastError();
+		else if(r != sizeof(len))
+			throw;
+
+		r = send(c, (char*)ptr, len, 0);
+		if(r == SOCKET_ERROR)
+			throw WSAGetLastError();
+		else if(r != len)
+			throw;
+
+		return 1;
+	}
+	catch(int wsaerr) {
+		std::cerr << "send error: " << wsaerr << std::endl;
+	}
+	catch(bad_alloc&) {
+		std::cerr << "send error: alloc failed" << std::endl;
+	}
+	catch(...) {
+		std::cerr << "send: connection closed" << std::endl;
+	}
+	return -1;
+}
+
+int	MQLCALL	r_int_array(int* arr)
+{
+	std::cerr << " :: int_array " << int_array.size() << " @" << (int)arr << std::endl;
+	if(arr == NULL || int_array.size() == 0)
+		return 0;
+	std::copy(int_array.begin(), int_array.end(), arr);
+	return int_array.size();
+}
+
+int	MQLCALL	r_double_array(double* arr)
+{
+	std::cerr << " :: double_array " << double_array.size() << std::endl;
+	if(arr == NULL || double_array.size() == 0)
+		return 0;
+	std::copy(double_array.begin(), double_array.end(), arr);
+	return double_array.size();
+}
+
+int	MQLCALL	r_string_array(mql_string *arr)
+{
+	std::cerr << " :: string_array " << string_array.size() << std::endl;
+	if(arr == NULL || string_array.size() == 0)
+		return 0;
+	//std::copy(string_array.begin(), string_array.end(), arr);
+	int i=0;
+	char *s_str;
+	
+	for(std::string s : string_array) {
+		s_str = new char[s.size()+1];
+		//strcpy(s_str, s.c_str());
+		//arr[i].s = s_str;
+		strcpy(arr[i].s, s.c_str());
+		arr[i].len = s.size()+1;
+		i++;
+	}
+	
+	return string_array.size();
+}
+
+void MQLCALL r_int_array_set(int* arr, int size)
+{
+	if(size > 0)
+		std::cerr << " :: int_array_set " << size << ", " << arr[0] << std::endl;
+	else
+		std::cerr << " :: int_array_set " << size << std::endl;
+	
+	int_array.resize(size);
+	if(size > 0)
+		std::copy(arr, arr+size, int_array.begin());
+}
+
+void MQLCALL r_double_array_set(double* arr, int size)
+{
+	if(size > 0)
+		std::cerr << " :: double_array_set " << size << ", " << arr[0] << std::endl;
+	else
+		std::cerr << " :: double_array_set " << size << std::endl;
+	
+	double_array.resize(size);
+	if(size > 0)
+		std::copy(arr, arr+size, double_array.begin());
+}
+
+void MQLCALL r_string_array_set(mql_string *arr, int size)
+{
+	if(size > 0)
+		std::cerr << " :: string_array_set " << size << ", " << arr[0].len << std::string(arr[0].s, arr[0].len) << std::endl;
+	else
+		std::cerr << " :: string_array_set " << size << std::endl;
+	
+	//std::copy(string_array.begin(), string_array.end(), arr);
+	
+	string_array.clear();
+	for(int i=0; i<size; i++) {
+		string_array.push_back(std::string(arr[i].s));
+	}
+}
+
+void MQLCALL r_int_return(int x)
+{
+	type_return = 0;
+	int_return = x;
+}
+
+void MQLCALL r_double_return(double x)
+{
+	type_return = 1;
+	double_return = x;
+}
+
+void MQLCALL r_string_return(char* x)
+{
+	type_return = 2;
+	string_return = x;
+}
+
+/*int MQLCALL r_call(SOCKET c, char *f, char *arg)
+{
+	int r;
+	unsigned short len;
+
+	try {
+		len = strlen(f)+1 + strlen(arg)+1;
+		r = send(c, &len, 2, 0);
+		if(r == SOCKET_ERROR)	throw WSAGetLastError();
+		else if(!r)	throw;
+
+		r = send(c, f, strlen(f)+1, 0);
+		if(r == SOCKET_ERROR)	throw WSAGetLastError();
+		else if(!r)	throw;
+
+		r = send(c, f, strlen(f)+1, 0);
+		if(r == SOCKET_ERROR)	throw WSAGetLastError();
+		else if(!r)	throw;
+	}
+	catch(int wsaerr) {
+		std::cerr << "recv error: " << wsaerr << std::endl;
+	}
+	catch(bad_alloc&) {
+		std::cerr << "recv error: alloc failed" << std::endl;
+	}
+	catch(...) {
+		std::cerr << "recv: connection closed" << std::endl;
+	}
+	return -1;
+}*/
+
+bool MQLCALL r_close(SOCKET sd)
+{
+	vector<SOCKET>::iterator f = find(gConnections.begin(), gConnections.end(), sd);
+	if(f != gConnections.end())
+		gConnections.erase(f);
+
+	if(shutdown(sd, SD_BOTH) == SOCKET_ERROR)
+		return false;
+
+   char acReadBuffer[kBufferSize];
+	while (1)
+	{
+		int nNewBytes = recv(sd, acReadBuffer, kBufferSize, 0);
+		if (nNewBytes == SOCKET_ERROR)
+			return false;
+		else if (nNewBytes == 0)
+			break;
+    }
+
+	if (closesocket(sd) == SOCKET_ERROR)
+		return false;
+
+	return true;
+}
+
+void MQLCALL r_finish(SOCKET s)
+{
+	shutdown(s, SD_BOTH);
+	closesocket(s);
+}
+
+int MQLCALL r_recv_pack(SOCKET c) {
+	int r, id, j, ints, doubles, strings, slen;
+	unsigned short len;
+	char *buf, *alloc, *sbuf;
+	
+	std::cerr << " :: r_recv_pack " << c << std::endl;
+	
+	try {
+		r = recv(c, (char*)&len, 2, 0);
+		if(r == SOCKET_ERROR)
+			throw WSAGetLastError();
+		else if(r != 2) {
+			std::cerr << " :: r_recv_pack recv CLOSE (0) error: r=" << r << std::endl;
+			r_close(c);
+			return SOCKET_ERROR;
+		}
+
+		std::cerr << " :: r_recv_pack len=" << len << std::endl;
+		alloc = buf = new char[len+1];
+		buf[len] = '\0';
+
+		unsigned long len_waiting=0;
+		while(len_waiting < len)
+			ioctlsocket(c, FIONREAD, &len_waiting);
+		
+		r = recv(c, buf, len, 0);
+		
+		if(r == SOCKET_ERROR)
+			throw WSAGetLastError();
+		else if(r != len) {
+			std::cerr << "recv CLOSE (0) error: r=" << r << std::endl;
+			r_close(c);
+			return SOCKET_ERROR;
+		}
+		
+		msgpack::unpacked pack;
+		msgpack::unpack(&pack, buf, len);
+		msgpack::object result = pack.get();
+		std::vector<msgpack::object> result_arr;
+		
+		result.convert(&result_arr);
+		result_arr[0].convert(&int_array);
+		result_arr[1].convert(&double_array);
+		result_arr[2].convert(&string_array);
+		
+		std::cerr << " :: msgpack::unpacked " << result << std::endl;
+		
+		/*
+		id = reinterpret_cast<int*>(buf)[0];
+		buf += 4;
+		ints = buf[0];
+		doubles = buf[1];
+		strings = buf[2];
+		buf += 3;
+		
+		int_array.assign(reinterpret_cast<int*>(buf), reinterpret_cast<int*>(buf)+ints);
+		buf += ints*4;
+		double_array.assign(reinterpret_cast<double*>(buf), reinterpret_cast<double*>(buf)+doubles);
+		buf += doubles*4;
+		string_array.clear();
+		for(int i=0; i<strings; i++)
+		{
+			slen = strlen(buf)+1;
+			sbuf = new char[slen];
+			strcpy(sbuf, buf);
+			string_array.push_back(sbuf);
+			buf += len;
+		}*/
+
+		//if(ints)
+		//	reinterpret_cast<int*>(&buf[7]);
+		//delete[] alloc;
+		type_return = -1;
+		return 0;
+	}
+	catch(int wsaerr) {
+		if(wsaerr == 10054)
+		{
+			std::cerr << "recv CLOSE error: " << wsaerr << std::endl;
+			return SOCKET_ERROR;
+		}
+		std::cerr << "recv error: " << wsaerr << std::endl;
+		return -wsaerr;
+	}
+	catch(bad_alloc&) {
+		std::cerr << "recv error: alloc failed" << std::endl;
+		return -2;
+	}
+	catch(...) {
+		std::cerr << "recv: connection closed" << std::endl;
+		return -3;
+	}
+	return SOCKET_ERROR;
+}
