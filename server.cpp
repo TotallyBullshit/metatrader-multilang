@@ -180,12 +180,13 @@ SOCKET MQLCALL r_ready_read(SOCKET ListeningSocket)
 
     //sockaddr_in sinRemote;
     //int nAddrSize = sizeof(sinRemote);
+    timeval tv{0, 1000};
 
     fd_set ReadFDs, WriteFDs, ExceptFDs;
     SetupFDSets(ReadFDs, WriteFDs, ExceptFDs, ListeningSocket);
 
     try {
-        int ready = select(0, &ReadFDs, NULL, &ExceptFDs, 0);
+        int ready = select(0, &ReadFDs, NULL, &ExceptFDs, &tv);
         std::cerr << "r_ready_read ready=" << ready << std::endl;
         if(ready > 0) {
             for (auto it = gConnections.begin(); it != gConnections.end(); ) {
