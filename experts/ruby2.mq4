@@ -5,7 +5,8 @@ extern int server_port = 8000;
 extern bool debug = true;
 
 #include <ruby2.mqh>
-int c = 0, s = 0;
+
+int s = 0;
 
 int init()
 {
@@ -26,7 +27,8 @@ int start()
 
       while(!IsStopped())
       {
-         c = r_ready_read(s);
+         int c = r_ready_read(s);
+
          if(c < 1)
             break;
          if(debug) Print(" :: r_ready_read() => " + c);
