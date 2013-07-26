@@ -1,33 +1,21 @@
-//#include <stdlib.mqh>
-//#include <winsock.mqh>
-
-#import "user32.dll"
-   bool GetAsyncKeyState(int Key);
-#import "ruby.dll"
-   int buf_pos(int& b[], int pos);
-   int buf_d_pos(double& buffer[], int pos);
-   string buf_pos_s(int& buffer[], int pos);
-   int str_pos(string buffer, int pos);
-   void buf_copy(int dest, int src, int count);
 #import "server.dll"
-   int mql_server(int port);
+   int r_init(int port);
+   void r_finish(int s);
+   bool r_close(int c);
+
    int r_check_accept(int s);
    int r_ready_read(int c);
-   bool r_close(int c);
-   //void make_close_all(int s);
-   int r_init(int port);
-   
+
    int r_recv_pack(int c);
    int r_packet_return(int c);
-   
+
    int r_int_array(int &arr[]);
    int r_double_array(double &arr[]);
    int r_string_array(string &arr[]);
-   
+
    void r_int_array_set(int &arr[], int size);
    void r_double_array_set(double &arr[], int size);
    void r_string_array_set(string &arr[], int size);
-   //string r_str(int i);
 #import
 
 #define RVolume         9
