@@ -550,9 +550,13 @@ int MQLCALL r_recv_pack(SOCKET c) {
         std::cerr << "recv error: alloc failed" << std::endl;
         return -2;
     }
-    catch(...) {
-        std::cerr << "recv: connection closed" << std::endl;
+    catch(msgpack::type_error&) {
+        std::cerr << "msgpack error: bad cast" << std::endl;
         return -3;
+    }
+    catch(...) {
+        std::cerr << "recv packet: error" << std::endl;
+        return -4;
     }
     return SOCKET_ERROR;
 }
