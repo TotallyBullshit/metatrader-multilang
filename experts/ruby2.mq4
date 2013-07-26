@@ -44,8 +44,6 @@ int start()
 
 int deinit()
 {
-//   Alert("closing");
-//   make_close_all(s);
-   //WSACleanup();
+   r_finish(s);
    return(0);
 }
