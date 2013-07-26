@@ -1,10 +1,5 @@
-//+------------------------------------------------------------------+
-//|                                                       RubyEA.mq4 |
-//|                                                            Piotr |
-//|                                        http://www.metaquotes.net |
-//+------------------------------------------------------------------+
 #property copyright "Piotr"
-#property link      "http://www.metaquotes.net"
+#property link      "https://github.com/pczarn/metatrader-multilang"
 
 extern int server_port = 8000;
 extern bool debug = true;
