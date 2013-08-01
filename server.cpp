@@ -1,6 +1,5 @@
 //C++11: remote procedure call library for MQL4
 //g++ server.cpp -o server.dll -s -shared -Wl,--kill-at -std=c++11 -lws2_32
-//i486-mingw32-... -lmsgpack
 
 #include "winsock2.h"
 #include "time.h"
@@ -38,13 +37,15 @@ struct mql_string {
 
 extern "C" {
 MQLAPI SOCKET MQLCALL r_init(int port);
+MQLAPI bool   MQLCALL r_close(SOCKET sd);
+MQLAPI void   MQLCALL r_finish(SOCKET);
+
 MQLAPI SOCKET MQLCALL r_accept(SOCKET);
 MQLAPI SOCKET MQLCALL r_check_accept(SOCKET);
-
 MQLAPI SOCKET MQLCALL r_ready_read(SOCKET);
-MQLAPI int    MQLCALL r_packet_get(SOCKET);
+
+MQLAPI int    MQLCALL r_recv_pack(SOCKET sd);
 MQLAPI int    MQLCALL r_packet_return(SOCKET);
-//MQLAPI void   MQLCALL r_call(SOCKET, char*, char*);
 
 MQLAPI int    MQLCALL r_int_array(int*);
 MQLAPI int    MQLCALL r_double_array(double*);
@@ -54,14 +55,6 @@ MQLAPI void   MQLCALL r_int_array_set(int*, int);
 MQLAPI void   MQLCALL r_double_array_set(double*, int);
 MQLAPI void   MQLCALL r_string_array_set(mql_string*, int);
 
-MQLAPI void   MQLCALL r_int_return(int);
-MQLAPI void   MQLCALL r_double_return(double);
-MQLAPI void   MQLCALL r_string_return(char*);
-
-MQLAPI bool   MQLCALL r_close(SOCKET sd);
-MQLAPI void   MQLCALL r_finish(SOCKET);
-
-MQLAPI int    MQLCALL r_recv_pack(SOCKET sd);
 }
 
 bool r_close_socket(SOCKET sd);
@@ -222,93 +215,6 @@ SOCKET MQLCALL r_ready_read(SOCKET ListeningSocket)
     return INVALID_SOCKET;
 }
 
-int MQLCALL r_packet_get(SOCKET c)
-{
-    int r, id, j, ints, doubles, strings, slen;
-    unsigned short len;
-    char *buf, *alloc, *sbuf;
-
-    std::cerr << "r_packet_get " << c << std::endl;
-
-    try {
-        r = recv(c, (char*)&len, 2, 0);
-        if(r == SOCKET_ERROR) {
-            throw WSAGetLastError();
-        }
-        else if(r != 2) {
-            std::cerr << "recv CLOSE (0) error: r=" << r << std::endl;
-            //r_close(c);
-            return SOCKET_ERROR;
-        }
-
-        alloc = buf = new char[len];
-        std::cerr << "r_packet_get len=" << len << std::endl;
-
-        unsigned long len_waiting=0;
-        while(len_waiting < len) {ioctlsocket(c, FIONREAD, &len_waiting);}
-        r = recv(c, buf, len, 0);
-        if(r == SOCKET_ERROR) {
-            throw WSAGetLastError();
-        }
-        else if(r != len) {
-            std::cerr << "recv CLOSE (0) error: r=" << r << std::endl;
-            //r_close(c);
-            return SOCKET_ERROR;
-        }
-
-        msgpack::unpacker pack;
-        msgpack::unpacked result;
-
-        memcpy(pack.buffer(), buf, len);
-        pack.buffer_consumed(len);
-
-        pack.next(&result);
-        std::cerr << "PACK: " << result.get() << std::endl;
-
-        id = reinterpret_cast<int*>(buf)[0];
-        buf += 4;
-        ints = buf[0];
-        doubles = buf[1];
-        strings = buf[2];
-        buf += 3;
-
-        int_array.assign(reinterpret_cast<int*>(buf), reinterpret_cast<int*>(buf)+ints);
-        buf += ints*4;
-        double_array.assign(reinterpret_cast<double*>(buf), reinterpret_cast<double*>(buf)+doubles);
-        buf += doubles*4;
-        string_array.clear();
-
-        for(int i=0; i<strings; i++) {
-            slen = strlen(buf)+1;
-            sbuf = new char[slen];
-            strcpy(sbuf, buf);
-            string_array.push_back(sbuf);
-            buf += len;
-        }
-
-        delete[] alloc;
-        type_return = -1;
-        return id;
-    }
-    catch(int wsaerr) {
-        if(wsaerr == 10054) {
-            std::cerr << "recv CLOSE error: " << wsaerr << std::endl;
-            return SOCKET_ERROR;
-        }
-        std::cerr << "recv error: " << wsaerr << std::endl;
-        return -wsaerr;
-    }
-    catch(bad_alloc&) {
-        std::cerr << "recv error: alloc failed" << std::endl;
-        return -2;
-    }
-    catch(...) {
-        std::cerr << "recv: connection closed" << std::endl;
-        return -3;
-    }
-    return SOCKET_ERROR;
-}
-
 int MQLCALL r_packet_return(SOCKET c)
 {
     int r;
@@ -432,24 +338,6 @@ void MQLCALL r_string_array_set(mql_string *arr, int size)
     for(int i=0; i<size; i++) {
         string_array.push_back(std::string(arr[i].s));
     }
-}
-
-void MQLCALL r_int_return(int x)
-{
-    type_return = 0;
-    int_return = x;
-}
-
-void MQLCALL r_double_return(double x)
-{
-    type_return = 1;
-    double_return = x;
-}
-
-void MQLCALL r_string_return(char* x)
-{
-    type_return = 2;
-    string_return = x;
 }
 
 bool MQLCALL r_close(SOCKET sd)
