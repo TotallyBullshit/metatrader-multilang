@@ -226,6 +226,7 @@ int MQLCALL r_packet_return(SOCKET c)
 
         msgpack::sbuffer sbuf;
         msgpack::packer<msgpack::sbuffer> packer(&sbuf);
+        packer.pack_array(!int_array.empty() + !double_array.empty() + !string_array.empty());
 
         if(int_array.size() > 0)
             packer.pack(int_array);
