@@ -16,6 +16,11 @@
    void r_int_array_set(int &arr[], int size);
    void r_double_array_set(double &arr[], int size);
    void r_string_array_set(string &arr[], int size);
+
+   int ind_init(string name, string symbol, int period);
+   int ind_get_all(string &arr[]);
+   int ind_find(string name, int &arr[], string &str_arr[]);
+   void ind_finish(int id);
 #import
 
 #define RVolume         9

@@ -21,6 +21,22 @@ int type_return, int_return;
 double double_return;
 char *string_return;
 
+struct Indicator {
+    std::string name;
+
+    std::string symbol;
+    int period;
+
+    vector<int> ints;
+    vector<double> doubles;
+    vector<std::string> strings;
+
+    Indicator(std::string n, std::string s, int p)
+        : name(n), symbol(s), period(p) {}
+};
+
+vector<Indicator*> indicators;
+
 /*
 00 GETCONST     ([int]) -> int|double           double Ask, Bid, Point/int Bars, Digits/double Open[], Close[], High[], Low[], Volume[]/int Time[]
 01 ACCINFO      -> double                       double AccountBalance()
@@ -55,6 +71,10 @@ MQLAPI void   MQLCALL r_int_array_set(int*, int);
 MQLAPI void   MQLCALL r_double_array_set(double*, int);
 MQLAPI void   MQLCALL r_string_array_set(mql_string*, int);
 
+MQLAPI Indicator* MQLCALL ind_init(char*, char*, int);
+MQLAPI int        MQLCALL ind_get_all(mql_string*);
+MQLAPI int        MQLCALL ind_find(char *name, int *arr, mql_string *str_arr);
+MQLAPI void       MQLCALL ind_finish(Indicator*);
 }
 
 bool r_close_socket(SOCKET sd);
@@ -449,4 +469,56 @@ int MQLCALL r_recv_pack(SOCKET c) {
         return -4;
     }
     return SOCKET_ERROR;
+}
+
+Indicator* MQLCALL ind_init(char *name, char *symbol, int period)
+{
+    auto ind = new Indicator(std::string(name), std::string(symbol), period);
+    indicators.push_back(ind);
+    cerr << " :: ind :: new " << std::string(name) << " indicator " << indicators.size()-1 << endl;
+    return ind;
+}
+
+int MQLCALL ind_get_all(mql_string *arr)
+{
+    int i = 0;
+
+    for(auto ind_ptr : indicators) {
+        strcpy(arr[i].s, ind_ptr->name.c_str());
+        arr[i].len = ind_ptr->name.size()+1;
+        i++;
+    }
+
+    return indicators.size();
+}
+
+int MQLCALL ind_find(char *name, int *arr, mql_string *str_arr)
+{
+    int j = 0;
+    auto s = std::string(name);
+
+    for(auto ind : indicators) {
+        if(ind->name == s) {
+            arr[j*2] = reinterpret_cast<int>(ind);
+            arr[j*2+1] = ind->period;
+            strcpy(str_arr[j].s, ind->symbol.c_str());
+            str_arr[j].len = ind->symbol.size() + 1;
+
+            j++;
+        }
+    }
+
+    return j;
+}
+
+void MQLCALL ind_finish(Indicator *ind)
+{
+    auto it = std::find(indicators.begin(), indicators.end(), ind);
+    if(it == indicators.end()) {
+        std::cerr << " :: INVALID DELETE @" << ind << endl;
+        return;
+    }
+
+    delete *it;
+    indicators.erase(it);
 }
