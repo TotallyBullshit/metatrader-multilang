@@ -6,6 +6,8 @@ require_relative 'object'
 require_relative 'indicator'
 require_relative 'color'
 
+class MqlClose < StandardError; end
+
 class Mql
    OrderComment = 110
    EMPTY = -1
@@ -16,28 +18,52 @@ class Mql
 
 
 
+   def initialize port=8000
+      i = 0
+
+      begin
+         i += 1
+         @s = TCPSocket.new('localhost', port)
+      rescue Errno::ECONNREFUSED
+         raise if i > 5
+         sleep 0.1
+         retry
 
       end
    end
 
-   def initialize port=8000
-      @s = TCPSocket.new('localhost', port)
+   def send *args
+      remote_call *args
+      receive
    end
 
-   def send *args
-      msg = [args.select {|o| Fixnum === o },
+   def remote_call *args
+      msg = [
+         args.select {|o| Fixnum === o },
          args.select {|o| Float === o },
          args.select {|o| String === o }
       ].to_msgpack
 
-      @s.write [msg.size].pack('S') + msg
-      
-      len = @s.read(2).unpack('S').first
+      @s.write([msg.size].pack('S') << msg)
+   end
+
+   def receive
+      begin
+         len = @s.read(2)
+      rescue Errno::ECONNRESET
+      end
+      raise MqlClose.new if len.nil?
+
+      len = len.unpack('S').first
       if len.zero?
          nil
       else
          data = @s.read(len)
-         MessagePack.unpack(data).flatten
+         begin
+            MessagePack.unpack(data).flatten
+         rescue
+            binding.pry
+         end
       end
    end
 
