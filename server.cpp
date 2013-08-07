@@ -190,7 +190,6 @@ SOCKET MQLCALL r_check_accept(SOCKET s)
 SOCKET MQLCALL r_ready_read(SOCKET ListeningSocket)
 {
     std::string errstr("error");
-    std::cerr << "r_ready_read " << ListeningSocket << std::endl;
 
     //sockaddr_in sinRemote;
     //int nAddrSize = sizeof(sinRemote);
@@ -201,7 +200,6 @@ SOCKET MQLCALL r_ready_read(SOCKET ListeningSocket)
 
     try {
         int ready = select(0, &ReadFDs, NULL, &ExceptFDs, &tv);
-        std::cerr << "r_ready_read ready=" << ready << std::endl;
         if(ready > 0) {
             for (auto it = gConnections.begin(); it != gConnections.end(); ) {
                 std::cerr << "r_ready_read it=" << *it << std::endl;
@@ -424,7 +422,9 @@ void MQLCALL r_finish(SOCKET s)
         r_close_socket(sd);
     }
     shutdown(s, SD_BOTH);
-    closesocket(s);
+
+    if(closesocket(s) == SOCKET_ERROR)
+        std::cerr << " :: closesocket error! " << WSAGetLastError() << endl;
 }
 
 int MQLCALL r_recv_pack(SOCKET c) {

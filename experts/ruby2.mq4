@@ -33,12 +33,9 @@ int init()
 
 int start()
 {
-   if(debug) Print(" :: accepting");
-   
    while(!IsStopped())
    {
       int ret2 = r_check_accept(s);
-      if(debug) Print(" :: r_check_accept() => " + ret2);
 
       while(!IsStopped())
       {

@@ -362,7 +362,6 @@ void handle_procedure(int &ints[], double &doubles[], string &strings[]) {
          break;
 
       default:
-         Alert(" :: UNKNOWN COMMAND "+ints[0]);
          Print(" :: UNKNOWN COMMAND "+ints[0]);
          ret_void();
    }
