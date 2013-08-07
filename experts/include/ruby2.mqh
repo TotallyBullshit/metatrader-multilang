@@ -191,10 +191,10 @@ void handle_procedure(int &ints[], double &doubles[], string &strings[]) {
          ret_i(Digits);
          break;
       case 5:
-         ret_i(Open[ints[1]]);
+         ret_d(Open[ints[1]]);
          break;
       case 6:
-         ret_i(Close[ints[1]]);
+         ret_d(Close[ints[1]]);
          break;
       case 7:
          ret_d(High[ints[1]]);
