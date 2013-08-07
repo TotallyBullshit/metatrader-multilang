@@ -32,8 +32,8 @@ int start()
          if(c < 1)
             break;
          if(debug) Print(" :: r_ready_read() => " + c);
-         
-         if(handle_read(c) == -1) {
+
+         if(handle_incoming(c) == -1) {
             if(debug) Alert(" :: start() return");
             return(0);
          }

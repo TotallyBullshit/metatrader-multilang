@@ -9,9 +9,10 @@
    int r_recv_pack(int c);
    int r_packet_return(int c);
 
-   int r_int_array(int &arr[]);
-   int r_double_array(double &arr[]);
-   int r_string_array(string &arr[]);
+   void r_array_size(int &size[], int id);
+   int r_int_array(int &arr[], int id);
+   int r_double_array(double &arr[], int id);
+   int r_string_array(string &arr[], int id);
 
    void r_int_array_set(int &arr[], int size);
    void r_double_array_set(double &arr[], int size);
@@ -67,9 +68,11 @@
 #define RiTime       408
 #define RiVolume     409
 
-int msg_int[100];
-double msg_dbl[100];
-string msg_str[100];
+#define RIndicator   500
+
+int msg_int[];
+double msg_dbl[];
+string msg_str[];
 
 void ret_s(string s)
 {
@@ -102,31 +105,51 @@ void ret_void()
    ArrayResize(msg_dbl, 0);
 }
 
-int handle_read(int c) {
+int handle_incoming(int c) {
    int ret_pack = r_recv_pack(c);
    if(debug) Print(" :: r_recv_pack() => "+ret_pack);
 
    if(ret_pack == 0) {
-      ArrayResize(msg_int, 20);
-      ArrayResize(msg_dbl, 20);
-      ArrayResize(msg_str, 20);
+      return(handle_dispatch(c));
+   }
+   else if(ret_pack < 0) {
+      r_close(c);
+      if(debug) Print(" :: handle_read :: closed");
+   }
+   else if(debug) Print(" :: handle_incoming :: indicator");
 
-      for(int i=0; i<20; i++)
-         msg_str[i] = StringConcatenate("-----------------------------------------------------------", "------------------------------------------------------------");
+   return(0);
+}
 
-      if(debug) Print(" :: handle_read :: msg_int "+ArraySize(msg_int));
+void copy_arrays(int num=0)
+{
+   int msg_size[3];
+   r_array_size(msg_size, num);
 
-      int msg_ints = r_int_array(msg_int);
-      int msg_dbls = r_double_array(msg_dbl);
-      int msg_strs = r_string_array(msg_str);
+   ArrayResize(msg_int, msg_size[0]);
+   ArrayResize(msg_dbl, msg_size[1]);
+   ArrayResize(msg_str, msg_size[2]);
 
-      if(debug) Print(StringConcatenate(" :: handle_read :: msg >>"+msg_int[0]+"<< strings=", msg_strs, " ints=", msg_ints, " doubles=", msg_dbls));
+   for(int i=0; i<msg_size[2]; i++)
+      msg_str[i] = StringConcatenate("-----------------------------------------------------------", "------------------------------------------------------------");
 
-      if(msg_int[0] == -1)
-         return(-1);
+   if(debug) Print(" :: copy_arrays :: ints "+ArraySize(msg_int));
 
-      handle_request(msg_int, msg_dbl, msg_str);
+   r_int_array(msg_int, num);
+   r_double_array(msg_dbl, num);
+   r_string_array(msg_str, num);
+}
 
+int handle_dispatch(int c)
+{
+   copy_arrays();
+
+   if(debug) Print(StringConcatenate(" :: handle_read :: msg >>", msg_int[0], "<<"));
+
+   if(msg_int[0] == -1)
+      return(-1);
+
+   if(handle_procedure(msg_int, msg_dbl, msg_str)) {
       if(debug) Print(StringConcatenate(" :: handle_read :: ints:", ArraySize(msg_int), " doubles:", ArraySize(msg_dbl), " strings:", ArraySize(msg_str)));
 
       r_int_array_set(msg_int, ArraySize(msg_int));
@@ -137,15 +160,11 @@ int handle_read(int c) {
 
       if(debug) Print(" :: handle_read :: ret_send => "+ret_send);
    }
-   else {
-      r_close(c);
-      if(debug) Print(" :: handle_read :: closed");
-   }
 
    return(0);
 }
 
-void handle_request(int &ints[], double &doubles[], string &strings[]) {
+void handle_procedure(int &ints[], double &doubles[], string &strings[]) {
    //Ask, Bid, Point, Bars, Digits, Open, Close, High, Low, Volume, Time
 
    int i;
@@ -330,6 +349,16 @@ void handle_request(int &ints[], double &doubles[], string &strings[]) {
          break;
       case RiVolume:
          ret_d(iVolume(strings[0], ints[1], ints[2]));
+         break;
+
+      case RIndicator:
+         ArrayResize(ints, 10*2);
+         ArrayResize(strings, 10);
+         i = ind_find(msg_str[0], ints, strings);
+
+         ArrayResize(ints, i*2);
+         ArrayResize(strings, i);
+         ArrayResize(doubles, 0);
          break;
 
       default:

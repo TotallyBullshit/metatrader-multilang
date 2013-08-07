@@ -63,9 +63,10 @@ MQLAPI SOCKET MQLCALL r_ready_read(SOCKET);
 MQLAPI int    MQLCALL r_recv_pack(SOCKET sd);
 MQLAPI int    MQLCALL r_packet_return(SOCKET);
 
-MQLAPI int    MQLCALL r_int_array(int*);
-MQLAPI int    MQLCALL r_double_array(double*);
-MQLAPI int    MQLCALL r_string_array(mql_string*);
+MQLAPI void   MQLCALL r_array_size(int*, Indicator*);
+MQLAPI int    MQLCALL r_int_array(int*, Indicator*);
+MQLAPI int    MQLCALL r_double_array(double*, Indicator*);
+MQLAPI int    MQLCALL r_string_array(mql_string*, Indicator*);
 
 MQLAPI void   MQLCALL r_int_array_set(int*, int);
 MQLAPI void   MQLCALL r_double_array_set(double*, int);
@@ -286,41 +287,69 @@ int MQLCALL r_packet_return(SOCKET c)
     return -1;
 }
 
-int MQLCALL r_int_array(int* arr)
+void MQLCALL r_array_size(int *size, Indicator *ind)
 {
-    std::cerr << " :: int_array " << int_array.size() << " @" << (int)arr << std::endl;
-    if(arr == NULL || int_array.size() == 0)
-        return 0;
-    std::copy(int_array.begin(), int_array.end(), arr);
-    return int_array.size();
+    if(ind == nullptr) {
+        size[0] = int_array.size();
+        size[1] = double_array.size();
+        size[2] = string_array.size();
+    }
+    else {
+        size[0] = ind->ints.size();
+        size[1] = ind->doubles.size();
+        size[2] = ind->strings.size();
+    }
 }
 
-int MQLCALL r_double_array(double* arr)
+int MQLCALL r_int_array(int* arr, Indicator *ind)
 {
-    std::cerr << " :: double_array " << double_array.size() << std::endl;
-    if(arr == NULL || double_array.size() == 0)
+    auto int_arr = &int_array;
+    if(ind != nullptr) {
+        int_arr = &ind->ints;
+    }
+
+    std::cerr << " :: int_array " << int_arr->size() << " @" << (int)arr << std::endl;
+    if(arr == NULL || int_arr->empty())
         return 0;
-    std::copy(double_array.begin(), double_array.end(), arr);
-    return double_array.size();
+    std::copy(int_arr->begin(), int_arr->end(), arr);
+    return int_arr->size();
 }
 
-int MQLCALL r_string_array(mql_string *arr)
+int MQLCALL r_double_array(double* arr, Indicator *ind)
 {
-    std::cerr << " :: string_array " << string_array.size() << std::endl;
-    if(arr == NULL || string_array.size() == 0)
+    auto dbl_arr = &double_array;
+    if(ind != nullptr) {
+        dbl_arr = &ind->doubles;
+    }
+
+    std::cerr << " :: double_array " << dbl_arr->size() << std::endl;
+    if(arr == NULL || dbl_arr->empty())
+        return 0;
+    std::copy(dbl_arr->begin(), dbl_arr->end(), arr);
+    return dbl_arr->size();
+}
+
+int MQLCALL r_string_array(mql_string *arr, Indicator *ind)
+{
+    auto str_arr = &string_array;
+    if(ind != nullptr) {
+        str_arr = &ind->strings;
+    }
+
+    std::cerr << " :: string_array (" << ind << ") size " << str_arr->size() << std::endl;
+    if(arr == NULL || str_arr->empty())
         return 0;
 
     int i=0;
     char *s_str;
 
-    for(std::string s : string_array) {
-        s_str = new char[s.size()+1];
+    for(std::string s : *str_arr) {
         strcpy(arr[i].s, s.c_str());
         arr[i].len = s.size()+1;
         i++;
     }
 
-    return string_array.size();
+    return str_arr->size();
 }
 
 void MQLCALL r_int_array_set(int* arr, int size)
@@ -437,15 +466,31 @@ int MQLCALL r_recv_pack(SOCKET c) {
         msgpack::unpack(&pack, buf, len);
         msgpack::object result = pack.get();
         std::vector<msgpack::object> result_arr;
+        std::vector<int> tmp_int;
 
         result.convert(&result_arr);
+        result_arr[0].convert(&tmp_int);
+
+        if(!tmp_int.empty() && tmp_int[0] > 500) {
+            auto ind = reinterpret_cast<Indicator*>((void*)tmp_int[1]);
+            if(!ind || std::find(indicators.begin(), indicators.end(), ind) == indicators.end())
+                throw -1;
+            // TODO: pass information that indicator is closed
+
+            std::cerr << " :: indicator " << ind << endl;
+
+            result_arr[0].convert(&ind->ints);
+            result_arr[1].convert(&ind->doubles);
+            result_arr[2].convert(&ind->strings);
+            return 1;
+        }
+
         result_arr[0].convert(&int_array);
         result_arr[1].convert(&double_array);
         result_arr[2].convert(&string_array);
 
         std::cerr << " :: msgpack::unpacked " << result << std::endl;
 
-        type_return = -1;
         return 0;
     }
     catch(int wsaerr) {

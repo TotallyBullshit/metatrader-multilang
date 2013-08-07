@@ -3,6 +3,7 @@ require 'msgpack'
 
 require_relative 'order'
 require_relative 'object'
+require_relative 'indicator'
 require_relative 'color'
 
 class Mql
