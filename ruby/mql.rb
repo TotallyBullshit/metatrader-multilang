@@ -75,6 +75,10 @@ class Mql
       send(1).first
    end
 
+   def bar_at_time time_at, opts={}
+      send(RiBarShift, opts[:symbol]||symbol, opts[:period]||period, time_at.to_i, (opts[:exact] ? 1 : 0)).first
+   end
+
    def bar_ind id1, id2, bar=0, opts={}
       if opts.empty?
          send(id1, bar.to_i).first
