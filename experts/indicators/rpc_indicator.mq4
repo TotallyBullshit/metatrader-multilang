@@ -5,7 +5,7 @@
 extern bool debug = true;
 extern string script_name = "import-csv";
 
-#include <ruby2.mqh>
+#include <rpc_interface.mqh>
 
 double ind_buf[];
 int s = 0;
