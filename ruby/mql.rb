@@ -16,8 +16,6 @@ class Mql
    RSymbol = 303
    RiBars, RiBarShift, RiClose, RiHigh, RiHighest, RiLow, RiLowest, RiOpen, RiTime, RiVolume = *(400..409)
 
-
-
    def initialize port=8000
       i = 0
 
@@ -28,7 +26,6 @@ class Mql
          raise if i > 5
          sleep 0.1
          retry
-
       end
    end
 
@@ -55,15 +52,9 @@ class Mql
       raise MqlClose.new if len.nil?
 
       len = len.unpack('S').first
-      if len.zero?
-         nil
-      else
-         data = @s.read(len)
-         begin
-            MessagePack.unpack(data).flatten
-         rescue
-            binding.pry
-         end
+
+      if len > 0
+         MessagePack.unpack(@s.read(len)).flatten
       end
    end
 
@@ -76,7 +67,12 @@ class Mql
    end
 
    def bar_at_time time_at, opts={}
-      send(RiBarShift, opts[:symbol]||symbol, opts[:period]||period, time_at.to_i, (opts[:exact] ? 1 : 0)).first
+      send(RiBarShift,
+         opts[:symbol] || symbol,
+         opts[:period] || period,
+         time_at.to_i,
+         (opts[:exact] ? 1 : 0)
+      ).first
    end
 
    def bar_ind id1, id2, bar=0, opts={}
