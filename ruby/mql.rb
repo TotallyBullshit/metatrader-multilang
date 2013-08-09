@@ -129,6 +129,6 @@ class Mql
    end
    
    def symbol
-      send(RSymbol).first
+      @symbol ||= send(RSymbol).first
    end
 end
